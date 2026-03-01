@@ -13,7 +13,6 @@
                    HorizontalOptions="Center" 
                    Margin="0,0,0,20"/>
 
-            <!-- 三个主模式按钮 -->
             <Button Text="模式 A：连续拍照" 
                     Clicked="OnModeA_Clicked"
                     HeightRequest="60"
@@ -35,12 +34,14 @@
                     BackgroundColor="#DC3545"
                     TextColor="White"/>
 
-            <!-- 分隔线 -->
             <BoxView HeightRequest="2" Color="Gray" Margin="0,20"/>
 
-            <!-- 模式 B 专属区域：搜索框 -->
-            <Frame x:Name="FrameModeB" IsVisible="False" BorderColor="#28A745" CornerRadius="10">
-                <VerticalStackLayout Spacing="10">
+            <Border x:Name="FrameModeB" 
+                    IsVisible="False" 
+                    Stroke="#28A745" 
+                    StrokeThickness="2"
+                    StrokeShape="RoundRectangle 10">
+                <VerticalStackLayout Spacing="10" Padding="15">
                     <Label Text="模式 B：输入姓名搜索" FontAttributes="Bold"/>
                     <Entry x:Name="EntrySearch" 
                            Placeholder="输入搜索内容..." 
@@ -49,25 +50,28 @@
                     <Button Text="执行搜索" Clicked="OnSearchExecute_Clicked" BackgroundColor="#28A745" TextColor="White"/>
                     <Label x:Name="LabelSearchResult" FontSize="18" FontAttributes="Bold" HorizontalOptions="Center"/>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
-            <!-- 模式 C 专属区域：任务文本框 -->
-            <Frame x:Name="FrameModeC" IsVisible="False" BorderColor="#DC3545" CornerRadius="10">
-                <VerticalStackLayout Spacing="10">
+            <Border x:Name="FrameModeC" 
+                    IsVisible="False" 
+                    Stroke="#DC3545" 
+                    StrokeThickness="2"
+                    StrokeShape="RoundRectangle 10">
+                <VerticalStackLayout Spacing="10" Padding="15">
                     <Label Text="模式 C：当前拍摄任务" FontAttributes="Bold"/>
-                    <Frame BackgroundColor="#F8F9FA" Padding="15" CornerRadius="5">
+                    <Border BackgroundColor="#F8F9FA" Padding="15" StrokeShape="RoundRectangle 5">
                         <Label x:Name="LabelTaskText" 
                                Text="暂无任务信息" 
                                FontSize="20" 
                                LineBreakMode="WordWrap"
                                HorizontalOptions="Center"/>
-                    </Frame>
+                    </Border>
                     <HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
                         <Button Text="📷 拍照" Clicked="OnTakePhoto_Clicked" BackgroundColor="#DC3545" TextColor="White"/>
                         <Button Text="下一个任务 ➡" Clicked="OnNextTask_Clicked" BackgroundColor="#6C757D" TextColor="White"/>
                     </HorizontalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
         </VerticalStackLayout>
     </ScrollView>

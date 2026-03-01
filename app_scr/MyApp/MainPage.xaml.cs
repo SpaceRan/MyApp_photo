@@ -32,7 +32,6 @@ namespace MyApp
             await ShowWelcomeAlert();
         }
 
-        // 物理返回键：退出连续拍照模式
         protected override bool OnBackButtonPressed()
         {
             if (_isInContinuousMode)
@@ -64,7 +63,7 @@ namespace MyApp
             }
             catch (Exception ex)
             {
-                await DisplayAlert("启动错误", $"初始化失败：{ex.Message}", "确定");
+                await DisplayAlertAsync("启动错误", $"初始化失败：{ex.Message}", "确定");
             }
         }
 
@@ -117,7 +116,7 @@ namespace MyApp
         private async Task ShowWelcomeAlert()
         {
             string msg = $"你会成为最好的开发者\n日期：{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n数据目录：{BaseFolderPath}";
-            await DisplayAlert("欢迎", msg, "开始工作");
+            await DisplayAlertAsync("欢迎", msg, "开始工作");
         }
 
         #endregion
@@ -137,7 +136,7 @@ namespace MyApp
         {
             ResetUI();
             _isInContinuousMode = true;
-            await DisplayAlert("连续拍照模式", "进入后可自由拍照\n按物理返回键退出", "确定");
+            await DisplayAlertAsync("连续拍照模式", "进入后可自由拍照\n按物理返回键退出", "确定");
             await StartContinuousCameraLoop();
         }
 
@@ -170,23 +169,30 @@ namespace MyApp
             }
         }
 
+        // 模式 B：搜索逻辑
         private async void OnSearchExecute_Clicked(object sender, EventArgs e)
         {
-            string keyword = EntrySearch.Text?.Trim();            
+            string keyword = EntrySearch.Text?.Trim();
+            
             if (string.IsNullOrEmpty(keyword))
             {
                 LabelSearchResult.Text = "⚠ 请输入搜索内容";
                 LabelSearchResult.TextColor = Colors.Orange;
                 return;
             }
+
             bool exists = _searchList.Contains(keyword);
+
             if (exists)
             {
                 LabelSearchResult.Text = "⚠ 已经有了！";
-                LabelSearchResult.TextColor = Colors.Red;       
-
-                EntrySearch.Text = "";
-                EntrySearch.Focus();         
+                LabelSearchResult.TextColor = Colors.Red;
+                
+                await Task.Delay(500);
+                await CapturePhotoAsync();
+                
+                await Task.Delay(800);
+                Application.Current.Quit();
             }
             else
             {
@@ -234,49 +240,40 @@ namespace MyApp
         #endregion
 
         #region 5. 相机逻辑
+
         private async Task<bool> CapturePhotoAsync()
+        {
+            try
             {
-                try
+                // 1. 检查相机权限
+                var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
+                if (status != PermissionStatus.Granted)
                 {
-                    var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
+                    status = await Permissions.RequestAsync<Permissions.Camera>();
                     if (status != PermissionStatus.Granted)
                     {
-                        status = await Permissions.RequestAsync<Permissions.Camera>();
-                        if (status != PermissionStatus.Granted)
-                        {
-                            await DisplayAlert("权限错误", "需要相机权限才能拍照", "确定");
-                            return false;
-                        }
-                    }
-
-                    var options = new MediaPickerOptions 
-                    { 
-                        Title = "CaseCapture",
-                        SaveToGallery = true  
-                    };
-                    var photo = await MediaPicker.CapturePhotoAsync(options);                    
-                    if (photo == null)
+                        await DisplayAlertAsync("权限错误", "需要相机权限才能拍照", "确定");
                         return false;
-                    
-                    return true;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    await DisplayAlert("相机错误", ex.Message, "确定");
-                    return false;
-                }
-            }
 
-        private async void OnTakePhoto_Clicked(object sender, EventArgs e)
-        {
-            bool success = await CapturePhotoAsync();
-            if (success)
+                var photo = await MediaPicker.CapturePhotoAsync(new MediaPickerOptions { Title = "CaseCapture" });
+                if (photo == null)
+                    return false;
+                
+                return true;
+            }
+            catch (Exception ex)
             {
-                await DisplayAlert("照片已保存到相册");
+                await DisplayAlertAsync("相机错误", ex.Message, "确定");
+                return false;
             }
         }
 
-                
+        private async void OnTakePhoto_Clicked(object sender, EventArgs e)
+        {
+            await CapturePhotoAsync();
+        }
 
         #endregion
     }
