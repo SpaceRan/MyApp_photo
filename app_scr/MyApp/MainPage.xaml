@@ -2,12 +2,10 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="MyApp.MainPage"
-             Title="癌症案例采集工具">
+             Title="MyCancerData">
 
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="20" VerticalOptions="Center">
-
-            <!-- 标题 -->
             <Label Text="请选择工作模式" 
                    FontSize="24" 
                    HorizontalOptions="Center" 
@@ -35,7 +33,26 @@
                     TextColor="White"/>
 
             <BoxView HeightRequest="2" Color="Gray" Margin="0,20"/>
+            
+            <Label Text="📸 最新拍摄预览" 
+                   FontSize="16" 
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"/>
+            
+            <Image x:Name="ImgLastPhoto" 
+                   HeightRequest="250" 
+                   Aspect="AspectFit" 
+                   IsVisible="False"
+                   BackgroundColor="#F5F5F5"/>
+            
+            <Label x:Name="LabelPhotoCount" 
+                   Text="已保存：0 张" 
+                   FontSize="14" 
+                   TextColor="Gray"
+                   HorizontalOptions="Center"/>
 
+            <BoxView HeightRequest="2" Color="Gray" Margin="0,20"/>
+            
             <Border x:Name="FrameModeB" 
                     IsVisible="False" 
                     Stroke="#28A745" 
@@ -57,6 +74,7 @@
                     Stroke="#DC3545" 
                     StrokeThickness="2"
                     StrokeShape="RoundRectangle 10">
+
                 <VerticalStackLayout Spacing="10" Padding="15">
                     <Label Text="模式 C：当前拍摄任务" FontAttributes="Bold"/>
                     <Border BackgroundColor="#F8F9FA" Padding="15" StrokeShape="RoundRectangle 5">
@@ -75,4 +93,5 @@
 
         </VerticalStackLayout>
     </ScrollView>
+    
 </ContentPage>
