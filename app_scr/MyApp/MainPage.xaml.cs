@@ -5,27 +5,22 @@ using System.Threading.Tasks;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
+#if ANDROID
+using Android.Provider;
+using Android.Content;
+using Android.OS;
+using static Android.Provider.MediaStore;
+#endif
 
 namespace MyApp
 {
     public partial class MainPage : ContentPage
     {
-        private string BaseFolderPath
-        {
-            get
-            {
-                if (OperatingSystem.IsAndroid())
-                {
-                    var context = Android.App.Application.Context;
-                    var externalDir = context.GetExternalFilesDir(null);
-                    return Path.Combine(externalDir.AbsolutePath, "MyCancerData");
-                }
-                else
-                {
-                    return Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
-                }
-            }
-        }   
+        // ✅ 应用私有目录（用于存储任务文件等）
+        private string BaseFolderPath => Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
+        
+        // ✅ 相册目录（用于保存照片）
+        private const string AlbumName = "MyCancerData";
 
         private const string FileName_Tasks = "tasks.txt";
         private const string FileName_Search = "search_data.txt";
@@ -174,7 +169,6 @@ namespace MyApp
 
         #region 4. 业务逻辑 
 
-        // 模式 A：连续拍照（自由模式，按返回键退出）
         private async Task StartContinuousCameraLoop()
         {
             while (_isInContinuousMode)
@@ -185,7 +179,6 @@ namespace MyApp
             }
         }
 
-        // 模式 B：搜索逻辑
         private async void OnSearchExecute_Clicked(object sender, EventArgs e)
         {
             string keyword = EntrySearch.Text?.Trim();
@@ -208,7 +201,7 @@ namespace MyApp
             }
             else
             {
-                LabelSearchResult.Text = "✅ 没有！已拍照记录";
+                LabelSearchResult.Text = "✅ 没有！拍照记录";
                 LabelSearchResult.TextColor = Colors.Green;
                 
                 await Task.Delay(500);
@@ -219,7 +212,6 @@ namespace MyApp
             }
         }
 
-        // 模式 C：任务显示
         private void UpdateTaskDisplay()
         {
             if (_taskList.Count == 0)
@@ -274,8 +266,8 @@ namespace MyApp
                 if (photo == null)
                     return false;
 
-                // 3. 保存
-                await SavePhotoToAppFolderAsync(photo);
+                // 3. 保存到相册（而不是应用私有目录）
+                await SavePhotoToGalleryAsync(photo);
 
                 return true;
             }
@@ -286,23 +278,32 @@ namespace MyApp
             }
         }
 
-        private async Task SavePhotoToAppFolderAsync(FileResult photo)
+        // ✅ 核心修改：保存到相册
+        private async Task SavePhotoToGalleryAsync(FileResult photo)
         {
             try
             {
-                if (!Directory.Exists(BaseFolderPath))
-                    Directory.CreateDirectory(BaseFolderPath);
-
-                string fileName = $"case_{DateTime.Now:yyyyMMddHHmmss}.jpg";
-                string destPath = Path.Combine(BaseFolderPath, fileName);
-
+#if ANDROID
+                // Android 10+ (API 29+) 使用 MediaStore
+                if (OperatingSystem.IsAndroidVersionAtLeast(29))
+                {
+                    await SaveToMediaStoreAsync(photo);
+                }
+                else
+                {
+                    // Android 9 及以下直接写入公共目录
+                    await SaveToPublicDirectoryAsync(photo);
+                }
+#else
+                // iOS/其他平台使用 FileSystem
+                string destPath = Path.Combine(FileSystem.AppDataDirectory, "Photos", $"{DateTime.Now:yyyyMMddHHmmss}.jpg");
                 using var sourceStream = await photo.OpenReadAsync();
                 using var destStream = File.Create(destPath);
                 await sourceStream.CopyToAsync(destStream);
+#endif
+
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    ImgLastPhoto.Source = ImageSource.FromFile(destPath);
-                    ImgLastPhoto.IsVisible = true;
                     LabelPhotoCount.Text = $"已保存：{GetFolderFileCount()} 张";
                 });
             }
@@ -312,12 +313,72 @@ namespace MyApp
             }
         }
 
+#if ANDROID
+        // ✅ Android 10+ 使用 MediaStore API
+        private async Task SaveToMediaStoreAsync(FileResult photo)
+        {
+            var context = Android.App.Application.Context;
+            var resolver = context.ContentResolver;
+
+            var contentValues = new Android.Content.ContentValues();
+            contentValues.Put(MediaStore.Images.Media.InterfaceConsts.DisplayName, $"case_{DateTime.Now:yyyyMMddHHmmss}");
+            contentValues.Put(MediaStore.Images.Media.InterfaceConsts.MimeType, "image/jpeg");
+            contentValues.Put(MediaStore.Images.Media.InterfaceConsts.RelativePath, $"Pictures/{AlbumName}");
+
+            var uri = resolver.Insert(MediaStore.Images.Media.ExternalContentUri, contentValues);
+            if (uri == null)
+                throw new Exception("无法创建媒体存储条目");
+
+            using var sourceStream = await photo.OpenReadAsync();
+            using var outputStream = resolver.OpenOutputStream(uri);
+            await sourceStream.CopyToAsync(outputStream);
+        }
+
+        // ✅ Android 9 及以下直接写入公共目录
+        private async Task SaveToPublicDirectoryAsync(FileResult photo)
+        {
+            var picturesDir = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryPictures);
+            var albumDir = new Java.IO.File(picturesDir, AlbumName);
+            
+            if (!albumDir.Exists())
+                albumDir.Mkdirs();
+
+            string fileName = $"case_{DateTime.Now:yyyyMMddHHmmss}.jpg";
+            var destFile = new Java.IO.File(albumDir, fileName);
+
+            using var sourceStream = await photo.OpenReadAsync();
+            using var destStream = System.IO.File.Create(destFile.AbsolutePath);
+            await sourceStream.CopyToAsync(destStream);
+
+            // 通知媒体扫描器
+            var mediaScanIntent = new Android.Content.Intent(Android.Content.Intent.ActionMediaScannerScanFile);
+            mediaScanIntent.SetData(Android.Net.Uri.FromFile(destFile));
+            Android.App.Application.Context.SendBroadcast(mediaScanIntent);
+        }
+#endif
+
         private int GetFolderFileCount()
         {
             try
             {
-                if (Directory.Exists(BaseFolderPath))
-                    return Directory.GetFiles(BaseFolderPath).Length;
+#if ANDROID
+                if (OperatingSystem.IsAndroidVersionAtLeast(29))
+                {
+                    // MediaStore 无法直接计数，返回估算值
+                    return -1;
+                }
+                else
+                {
+                    var picturesDir = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryPictures);
+                    var albumDir = new Java.IO.File(picturesDir, AlbumName);
+                    if (albumDir.Exists())
+                        return albumDir.ListFiles()?.Length ?? 0;
+                }
+#else
+                string photosPath = Path.Combine(FileSystem.AppDataDirectory, "Photos");
+                if (Directory.Exists(photosPath))
+                    return Directory.GetFiles(photosPath).Length;
+#endif
             }
             catch { }
             return 0;
@@ -329,5 +390,5 @@ namespace MyApp
         }
 
         #endregion
-            }
+    }
 }
