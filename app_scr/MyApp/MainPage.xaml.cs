@@ -6,20 +6,22 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
 #if ANDROID
-using Android.Provider;
+using Android.App;
 using Android.Content;
 using Android.OS;
-using static Android.Provider.MediaStore;
+using Android.Provider;
+using Java.IO;
+using Microsoft.Maui.ApplicationModel;
 #endif
 
 namespace MyApp
 {
     public partial class MainPage : ContentPage
     {
-        // ✅ 应用私有目录（用于存储任务文件等）
+        // 应用私有目录（存储任务文件）
         private string BaseFolderPath => Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
         
-        // ✅ 相册目录（用于保存照片）
+        // 相册名称
         private const string AlbumName = "MyCancerData";
 
         private const string FileName_Tasks = "tasks.txt";
@@ -74,7 +76,7 @@ namespace MyApp
             }
             catch (Exception ex)
             {
-                await DisplayAlertAsync("启动错误", $"初始化失败：{ex.Message}", "确定");
+                await DisplayAlert("启动错误", $"初始化失败：{ex.Message}", "确定");
             }
         }
 
@@ -127,7 +129,7 @@ namespace MyApp
         private async Task ShowWelcomeAlert()
         {
             string msg = $"你会成为最好的开发者\n日期：{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n数据目录：{BaseFolderPath}";
-            await DisplayAlertAsync("欢迎", msg, "开始工作");
+            await DisplayAlert("欢迎", msg, "开始工作");
         }
 
         #endregion
@@ -147,7 +149,7 @@ namespace MyApp
         {
             ResetUI();
             _isInContinuousMode = true;
-            await DisplayAlertAsync("连续拍照模式", "进入后可自由拍照\n按物理返回键退出", "确定");
+            await DisplayAlert("连续拍照模式", "进入后可自由拍照\n按物理返回键退出", "确定");
             await StartContinuousCameraLoop();
         }
 
@@ -201,7 +203,7 @@ namespace MyApp
             }
             else
             {
-                LabelSearchResult.Text = "✅ 没有！拍照记录";
+                LabelSearchResult.Text = "✅ 没有！已拍照记录";
                 LabelSearchResult.TextColor = Colors.Green;
                 
                 await Task.Delay(500);
@@ -249,54 +251,47 @@ namespace MyApp
         {
             try
             {
-                // 1. 权限检查
                 var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
                 if (status != PermissionStatus.Granted)
                 {
                     status = await Permissions.RequestAsync<Permissions.Camera>();
                     if (status != PermissionStatus.Granted)
                     {
-                        await DisplayAlertAsync("权限错误", "需要相机权限才能拍照", "确定");
+                        await DisplayAlert("权限错误", "需要相机权限才能拍照", "确定");
                         return false;
                     }
                 }
 
-                // 2. 拍照
                 var photo = await MediaPicker.CapturePhotoAsync(new MediaPickerOptions { Title = "CaseCapture" });
                 if (photo == null)
                     return false;
 
-                // 3. 保存到相册（而不是应用私有目录）
                 await SavePhotoToGalleryAsync(photo);
 
                 return true;
             }
             catch (Exception ex)
             {
-                await DisplayAlertAsync("相机错误", ex.Message, "确定");
+                await DisplayAlert("相机错误", ex.Message, "确定");
                 return false;
             }
         }
-
-        // ✅ 核心修改：保存到相册
         private async Task SavePhotoToGalleryAsync(FileResult photo)
         {
             try
             {
 #if ANDROID
-                // Android 10+ (API 29+) 使用 MediaStore
                 if (OperatingSystem.IsAndroidVersionAtLeast(29))
                 {
                     await SaveToMediaStoreAsync(photo);
                 }
                 else
                 {
-                    // Android 9 及以下直接写入公共目录
                     await SaveToPublicDirectoryAsync(photo);
                 }
 #else
-                // iOS/其他平台使用 FileSystem
                 string destPath = Path.Combine(FileSystem.AppDataDirectory, "Photos", $"{DateTime.Now:yyyyMMddHHmmss}.jpg");
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath));
                 using var sourceStream = await photo.OpenReadAsync();
                 using var destStream = File.Create(destPath);
                 await sourceStream.CopyToAsync(destStream);
@@ -304,23 +299,23 @@ namespace MyApp
 
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    LabelPhotoCount.Text = $"已保存：{GetFolderFileCount()} 张";
+                    LabelPhotoCount.Text = "照片已保存";
                 });
             }
             catch (Exception ex)
             {
-                await DisplayAlertAsync("保存错误", $"无法保存照片：{ex.Message}", "确定");
+                await DisplayAlert("保存错误", $"无法保存照片：{ex.Message}", "确定");
             }
         }
 
 #if ANDROID
-        // ✅ Android 10+ 使用 MediaStore API
+        // ✅ Android 10+ (API 29+) 使用 MediaStore
         private async Task SaveToMediaStoreAsync(FileResult photo)
         {
-            var context = Android.App.Application.Context;
+            var context = Platform.CurrentActivity ?? Android.App.Application.Context;
             var resolver = context.ContentResolver;
 
-            var contentValues = new Android.Content.ContentValues();
+            var contentValues = new ContentValues();
             contentValues.Put(MediaStore.Images.Media.InterfaceConsts.DisplayName, $"case_{DateTime.Now:yyyyMMddHHmmss}");
             contentValues.Put(MediaStore.Images.Media.InterfaceConsts.MimeType, "image/jpeg");
             contentValues.Put(MediaStore.Images.Media.InterfaceConsts.RelativePath, $"Pictures/{AlbumName}");
@@ -334,55 +329,27 @@ namespace MyApp
             await sourceStream.CopyToAsync(outputStream);
         }
 
-        // ✅ Android 9 及以下直接写入公共目录
         private async Task SaveToPublicDirectoryAsync(FileResult photo)
         {
-            var picturesDir = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryPictures);
-            var albumDir = new Java.IO.File(picturesDir, AlbumName);
+            var picturesDir = Environment.GetExternalStoragePublicDirectory(Environment.DirectoryPictures);
+            var albumDir = new File(picturesDir, AlbumName);
             
             if (!albumDir.Exists())
                 albumDir.Mkdirs();
 
             string fileName = $"case_{DateTime.Now:yyyyMMddHHmmss}.jpg";
-            var destFile = new Java.IO.File(albumDir, fileName);
+            var destFile = new File(albumDir, fileName);
 
             using var sourceStream = await photo.OpenReadAsync();
-            using var destStream = System.IO.File.Create(destFile.AbsolutePath);
+            using var destStream = File.Create(destFile.AbsolutePath);
             await sourceStream.CopyToAsync(destStream);
 
             // 通知媒体扫描器
-            var mediaScanIntent = new Android.Content.Intent(Android.Content.Intent.ActionMediaScannerScanFile);
+            var mediaScanIntent = new Intent(Intent.ActionMediaScannerScanFile);
             mediaScanIntent.SetData(Android.Net.Uri.FromFile(destFile));
             Android.App.Application.Context.SendBroadcast(mediaScanIntent);
         }
 #endif
-
-        private int GetFolderFileCount()
-        {
-            try
-            {
-#if ANDROID
-                if (OperatingSystem.IsAndroidVersionAtLeast(29))
-                {
-                    // MediaStore 无法直接计数，返回估算值
-                    return -1;
-                }
-                else
-                {
-                    var picturesDir = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryPictures);
-                    var albumDir = new Java.IO.File(picturesDir, AlbumName);
-                    if (albumDir.Exists())
-                        return albumDir.ListFiles()?.Length ?? 0;
-                }
-#else
-                string photosPath = Path.Combine(FileSystem.AppDataDirectory, "Photos");
-                if (Directory.Exists(photosPath))
-                    return Directory.GetFiles(photosPath).Length;
-#endif
-            }
-            catch { }
-            return 0;
-        }
 
         private async void OnTakePhoto_Clicked(object sender, EventArgs e)
         {
