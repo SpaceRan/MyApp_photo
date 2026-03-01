@@ -5,13 +5,13 @@ using System.Threading.Tasks;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
+using Microsoft.Maui.ApplicationModel;
+
 #if ANDROID
 using Android.App;
 using Android.Content;
 using Android.OS;
 using Android.Provider;
-using Java.IO;
-using Microsoft.Maui.ApplicationModel;
 #endif
 
 namespace MyApp
@@ -203,7 +203,7 @@ namespace MyApp
             }
             else
             {
-                LabelSearchResult.Text = "✅ 没有！已拍照记录";
+                LabelSearchResult.Text = "✅ 没有";
                 LabelSearchResult.TextColor = Colors.Green;
                 
                 await Task.Delay(500);
@@ -276,80 +276,47 @@ namespace MyApp
                 return false;
             }
         }
+        
         private async Task SavePhotoToGalleryAsync(FileResult photo)
         {
             try
             {
 #if ANDROID
-                if (OperatingSystem.IsAndroidVersionAtLeast(29))
-                {
-                    await SaveToMediaStoreAsync(photo);
-                }
-                else
-                {
-                    await SaveToPublicDirectoryAsync(photo);
-                }
-#else
-                string destPath = Path.Combine(FileSystem.AppDataDirectory, "Photos", $"{DateTime.Now:yyyyMMddHHmmss}.jpg");
-                Directory.CreateDirectory(Path.GetDirectoryName(destPath));
+                // 仅针对 Android 10+ (API 29+) 逻辑
+                var context = Platform.CurrentActivity ?? Android.App.Application.Context;
+                var resolver = context.ContentResolver;
+
+                var contentValues = new ContentValues();
+                contentValues.Put(MediaStore.Images.Media.InterfaceConsts.DisplayName, $"case_{DateTime.Now:yyyyMMddHHmmss}");
+                contentValues.Put(MediaStore.Images.Media.InterfaceConsts.MimeType, "image/jpeg");
+                contentValues.Put(MediaStore.Images.Media.InterfaceConsts.RelativePath, $"Pictures/{AlbumName}");
+
+                var uri = resolver.Insert(MediaStore.Images.Media.ExternalContentUri, contentValues);
+                if (uri == null)
+                    throw new Exception("无法创建媒体存储条目");
+
                 using var sourceStream = await photo.OpenReadAsync();
-                using var destStream = File.Create(destPath);
-                await sourceStream.CopyToAsync(destStream);
-#endif
+                using var outputStream = resolver.OpenOutputStream(uri);
+                await sourceStream.CopyToAsync(outputStream);
 
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    LabelPhotoCount.Text = "照片已保存";
+                    if (LabelPhotoCount != null)
+                        LabelPhotoCount.Text = "照片已保存";
                 });
+#else
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    if (LabelPhotoCount != null)
+                        LabelPhotoCount.Text = "当前仅支持在 Android 10+ 保存图片";
+                });
+#endif
             }
             catch (Exception ex)
             {
                 await DisplayAlert("保存错误", $"无法保存照片：{ex.Message}", "确定");
             }
         }
-
-#if ANDROID
-        // ✅ Android 10+ (API 29+) 使用 MediaStore
-        private async Task SaveToMediaStoreAsync(FileResult photo)
-        {
-            var context = Platform.CurrentActivity ?? Android.App.Application.Context;
-            var resolver = context.ContentResolver;
-
-            var contentValues = new ContentValues();
-            contentValues.Put(MediaStore.Images.Media.InterfaceConsts.DisplayName, $"case_{DateTime.Now:yyyyMMddHHmmss}");
-            contentValues.Put(MediaStore.Images.Media.InterfaceConsts.MimeType, "image/jpeg");
-            contentValues.Put(MediaStore.Images.Media.InterfaceConsts.RelativePath, $"Pictures/{AlbumName}");
-
-            var uri = resolver.Insert(MediaStore.Images.Media.ExternalContentUri, contentValues);
-            if (uri == null)
-                throw new Exception("无法创建媒体存储条目");
-
-            using var sourceStream = await photo.OpenReadAsync();
-            using var outputStream = resolver.OpenOutputStream(uri);
-            await sourceStream.CopyToAsync(outputStream);
-        }
-
-        private async Task SaveToPublicDirectoryAsync(FileResult photo)
-        {
-            var picturesDir = Environment.GetExternalStoragePublicDirectory(Environment.DirectoryPictures);
-            var albumDir = new File(picturesDir, AlbumName);
-            
-            if (!albumDir.Exists())
-                albumDir.Mkdirs();
-
-            string fileName = $"case_{DateTime.Now:yyyyMMddHHmmss}.jpg";
-            var destFile = new File(albumDir, fileName);
-
-            using var sourceStream = await photo.OpenReadAsync();
-            using var destStream = File.Create(destFile.AbsolutePath);
-            await sourceStream.CopyToAsync(destStream);
-
-            // 通知媒体扫描器
-            var mediaScanIntent = new Intent(Intent.ActionMediaScannerScanFile);
-            mediaScanIntent.SetData(Android.Net.Uri.FromFile(destFile));
-            Android.App.Application.Context.SendBroadcast(mediaScanIntent);
-        }
-#endif
 
         private async void OnTakePhoto_Clicked(object sender, EventArgs e)
         {
