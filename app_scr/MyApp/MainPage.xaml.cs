@@ -20,6 +20,7 @@ namespace MyApp
         
         // 进度保存 Key
         private const string PrefKey_TaskIndex = "last_task_index_v1"; //注意每次安装时都要+1更新否则肯定出问题
+        private const string PrefKey_LastPhotoTime = "last_photo_time";
         private List<string> _taskList = new();
         private List<string> _searchList = new();
         private int _currentTaskIndex = 0;
@@ -294,7 +295,7 @@ namespace MyApp
         private void OnNextTask_Clicked(object sender, EventArgs e)
         {
             _currentTaskIndex++;
-            // 保存进度到手机存储 (断点续传)
+
             Preferences.Default.Set(PrefKey_TaskIndex, _currentTaskIndex);
             Preferences.Default.Set(PrefKey_LastPhotoTime, DateTime.Now.ToString());
             
