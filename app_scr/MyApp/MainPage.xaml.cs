@@ -18,18 +18,15 @@ namespace MyApp
 {
     public partial class MainPage : ContentPage
     {
-        // 应用私有目录（存储任务文件）
         private string BaseFolderPath => Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
         
-        // 相册名称
         private const string AlbumName = "MyCancerData";
-
         private const string FileName_Tasks = "tasks.txt";
         private const string FileName_Search = "search_data.txt";
         private const string PrefKey_TaskIndex = "last_task_index_v1";
         
-        private List<string> _taskList = new();
-        private List<string> _searchList = new();
+        private List<string> _taskList = new List<string>();
+        private List<string> _searchList = new List<string>();
         private int _currentTaskIndex = 0;
         private bool _isInContinuousMode = false;
 
@@ -56,17 +53,40 @@ namespace MyApp
             return base.OnBackButtonPressed();
         }
 
-        #region 1. 初始化
-
         private async void InitializeAppAsync()
         {
             try
             {
-                await ForceCopyFromRawAsync();
-                await LoadDataFromLocalFileAsync();
+                if (!Directory.Exists(BaseFolderPath))
+                    Directory.CreateDirectory(BaseFolderPath);
+
+                await CopySingleFileAsync(FileName_Tasks);
+                await CopySingleFileAsync(FileName_Search);
+
+                _taskList.Clear();
+                _searchList.Clear();
                 
+                string tasksPath = Path.Combine(BaseFolderPath, FileName_Tasks);
+                string searchPath = Path.Combine(BaseFolderPath, FileName_Search);
+
+                if (File.Exists(tasksPath))
+                {
+                    var lines = await File.ReadAllLinesAsync(tasksPath);
+                    foreach (var line in lines)
+                        if (!string.IsNullOrWhiteSpace(line))
+                            _taskList.Add(line.Trim());
+                }
+
+                if (File.Exists(searchPath))
+                {
+                    var lines = await File.ReadAllLinesAsync(searchPath);
+                    foreach (var line in lines)
+                        if (!string.IsNullOrWhiteSpace(line))
+                            _searchList.Add(line.Trim());
+                }
+
                 _currentTaskIndex = Preferences.Default.Get(PrefKey_TaskIndex, 0);
-                if (_currentTaskIndex >= _taskList.Count)
+                if (_currentTaskIndex >= _taskList.Count && _taskList.Count > 0)
                 {
                     _currentTaskIndex = 0;
                     Preferences.Default.Set(PrefKey_TaskIndex, 0);
@@ -76,17 +96,8 @@ namespace MyApp
             }
             catch (Exception ex)
             {
-                await DisplayAlert("启动错误", $"初始化失败：{ex.Message}", "确定");
+                await DisplayAlert("Init Error", ex.Message, "OK");
             }
-        }
-
-        private async Task ForceCopyFromRawAsync()
-        {
-            if (!Directory.Exists(BaseFolderPath))
-                Directory.CreateDirectory(BaseFolderPath);
-
-            await CopySingleFileAsync(FileName_Tasks);
-            await CopySingleFileAsync(FileName_Search);
         }
 
         private async Task CopySingleFileAsync(string fileName)
@@ -97,51 +108,17 @@ namespace MyApp
             await inputStream.CopyToAsync(outputStream);
         }
 
-        private async Task LoadDataFromLocalFileAsync()
-        {
-            _taskList.Clear();
-            _searchList.Clear();
-            
-            string tasksPath = Path.Combine(BaseFolderPath, FileName_Tasks);
-            string searchPath = Path.Combine(BaseFolderPath, FileName_Search);
-
-            if (File.Exists(tasksPath))
-            {
-                var lines = await File.ReadAllLinesAsync(tasksPath);
-                foreach (var line in lines)
-                    if (!string.IsNullOrWhiteSpace(line))
-                        _taskList.Add(line.Trim());
-            }
-
-            if (File.Exists(searchPath))
-            {
-                var lines = await File.ReadAllLinesAsync(searchPath);
-                foreach (var line in lines)
-                    if (!string.IsNullOrWhiteSpace(line))
-                        _searchList.Add(line.Trim());
-            }
-        }
-
-        #endregion
-
-        #region 2. 欢迎弹窗
-
         private async Task ShowWelcomeAlert()
         {
-            string msg = $"你会成为最好的开发者\n日期：{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n数据目录：{BaseFolderPath}";
-            await DisplayAlert("欢迎", msg, "开始工作");
+            await DisplayAlert("Welcome", $"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\nDir: {BaseFolderPath}", "Start");
         }
-
-        #endregion
-
-        #region 3. 界面控制
 
         private void ResetUI()
         {
             FrameModeB.IsVisible = false;
             FrameModeC.IsVisible = false;
-            EntrySearch.Text = "";
-            LabelSearchResult.Text = "";
+            EntrySearch.Text = string.Empty;
+            LabelSearchResult.Text = string.Empty;
             LabelSearchResult.TextColor = Colors.Black;
         }
 
@@ -149,7 +126,7 @@ namespace MyApp
         {
             ResetUI();
             _isInContinuousMode = true;
-            await DisplayAlert("连续拍照模式", "进入后可自由拍照\n按物理返回键退出", "确定");
+            await DisplayAlert("Mode A", "Continuous mode started", "OK");
             await StartContinuousCameraLoop();
         }
 
@@ -167,10 +144,6 @@ namespace MyApp
             UpdateTaskDisplay();
         }
 
-        #endregion
-
-        #region 4. 业务逻辑 
-
         private async Task StartContinuousCameraLoop()
         {
             while (_isInContinuousMode)
@@ -187,7 +160,7 @@ namespace MyApp
             
             if (string.IsNullOrEmpty(keyword))
             {
-                LabelSearchResult.Text = "⚠ 请输入搜索内容";
+                LabelSearchResult.Text = "Warning: Empty input";
                 LabelSearchResult.TextColor = Colors.Orange;
                 return;
             }
@@ -196,20 +169,20 @@ namespace MyApp
 
             if (exists)
             {
-                LabelSearchResult.Text = "⚠ 已经有了！";
+                LabelSearchResult.Text = "Warning: Already exists!";
                 LabelSearchResult.TextColor = Colors.Red;
-                EntrySearch.Text = "";
+                EntrySearch.Text = string.Empty;
                 EntrySearch.Focus();
             }
             else
             {
-                LabelSearchResult.Text = "✅ 没有";
+                LabelSearchResult.Text = "Success: Not found";
                 LabelSearchResult.TextColor = Colors.Green;
                 
                 await Task.Delay(500);
                 await CapturePhotoAsync();
                 
-                EntrySearch.Text = "";
+                EntrySearch.Text = string.Empty;
                 EntrySearch.Focus();
             }
         }
@@ -218,7 +191,7 @@ namespace MyApp
         {
             if (_taskList.Count == 0)
             {
-                LabelTaskText.Text = "任务列表为空\n请检查 Resources/Raw/tasks.txt";
+                LabelTaskText.Text = "Task list is empty.";
                 LabelTaskText.TextColor = Colors.Red;
                 return;
             }
@@ -227,7 +200,7 @@ namespace MyApp
             {
                 _currentTaskIndex = 0;
                 Preferences.Default.Set(PrefKey_TaskIndex, 0);
-                LabelTaskText.Text = "✅ 所有任务已完成！\n已自动重置到第 1 个。";
+                LabelTaskText.Text = "All tasks completed! Reset to 1.";
                 LabelTaskText.TextColor = Colors.Green;
                 return;
             }
@@ -243,10 +216,6 @@ namespace MyApp
             UpdateTaskDisplay();
         }
 
-        #endregion
-
-        #region 5. 相机逻辑
-
         private async Task<bool> CapturePhotoAsync()
         {
             try
@@ -257,7 +226,7 @@ namespace MyApp
                     status = await Permissions.RequestAsync<Permissions.Camera>();
                     if (status != PermissionStatus.Granted)
                     {
-                        await DisplayAlert("权限错误", "需要相机权限才能拍照", "确定");
+                        await DisplayAlert("Permission Error", "Camera permission is required.", "OK");
                         return false;
                     }
                 }
@@ -267,12 +236,11 @@ namespace MyApp
                     return false;
 
                 await SavePhotoToGalleryAsync(photo);
-
                 return true;
             }
             catch (Exception ex)
             {
-                await DisplayAlert("相机错误", ex.Message, "确定");
+                await DisplayAlert("Camera Error", ex.Message, "OK");
                 return false;
             }
         }
@@ -285,29 +253,25 @@ namespace MyApp
                 var context = Platform.CurrentActivity ?? Android.App.Application.Context;
                 var resolver = context.ContentResolver;
 
-                // 加入毫秒确保文件名绝对唯一
                 string fileName = $"case_{DateTime.Now:yyyyMMddHHmmss_fff}.jpg";
 
                 var contentValues = new ContentValues();
                 contentValues.Put(MediaStore.Images.Media.InterfaceConsts.DisplayName, fileName);
                 contentValues.Put(MediaStore.Images.Media.InterfaceConsts.MimeType, "image/jpeg");
                 contentValues.Put(MediaStore.Images.Media.InterfaceConsts.RelativePath, $"Pictures/{AlbumName}");
-                
-                // 关键点：标记文件为挂起状态，此时系统相册不会去索引一个写了一半的文件
                 contentValues.Put(MediaStore.Images.Media.InterfaceConsts.IsPending, 1);
 
                 var uri = resolver.Insert(MediaStore.Images.Media.ExternalContentUri, contentValues);
                 if (uri == null)
-                    throw new Exception("无法创建媒体存储条目");
+                    throw new Exception("Failed to create MediaStore entry");
 
                 using (var sourceStream = await photo.OpenReadAsync())
                 using (var outputStream = resolver.OpenOutputStream(uri))
                 {
                     await sourceStream.CopyToAsync(outputStream);
-                    await outputStream.FlushAsync(); // 确保写入磁盘
+                    await outputStream.FlushAsync();
                 }
 
-                // 写入完成，解除挂起状态，这样相册就能立刻显示了
                 contentValues.Clear();
                 contentValues.Put(MediaStore.Images.Media.InterfaceConsts.IsPending, 0);
                 resolver.Update(uri, contentValues, null, null);
@@ -315,19 +279,19 @@ namespace MyApp
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     if (LabelPhotoCount != null)
-                        LabelPhotoCount.Text = "照片已保存";
+                        LabelPhotoCount.Text = "Photo saved";
                 });
 #else
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     if (LabelPhotoCount != null)
-                        LabelPhotoCount.Text = "当前仅支持在 Android 10+ 保存图片";
+                        LabelPhotoCount.Text = "Supported on Android 10+ only";
                 });
 #endif
             }
             catch (Exception ex)
             {
-                await DisplayAlert("保存错误", $"无法保存照片：{ex.Message}", "确定");
+                await DisplayAlert("Save Error", ex.Message, "OK");
             }
         }
 
@@ -335,7 +299,5 @@ namespace MyApp
         {
             await CapturePhotoAsync();
         }
-
-        #endregion
     }
 }
