@@ -10,7 +10,23 @@ namespace MyApp
 {
     public partial class MainPage : ContentPage
     {
-        private string BaseFolderPath => Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
+        private string BaseFolderPath
+        {
+            get
+            {
+                if (OperatingSystem.IsAndroid())
+                {
+                    var context = Android.App.Application.Context;
+                    var externalDir = context.GetExternalFilesDir(null);
+                    return Path.Combine(externalDir.AbsolutePath, "MyCancerData");
+                }
+                else
+                {
+                    return Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
+                }
+            }
+        }   
+
         private const string FileName_Tasks = "tasks.txt";
         private const string FileName_Search = "search_data.txt";
         private const string PrefKey_TaskIndex = "last_task_index_v1";
@@ -236,6 +252,7 @@ namespace MyApp
         #endregion
 
         #region 5. 相机逻辑
+
         private async Task<bool> CapturePhotoAsync()
         {
             try
@@ -257,7 +274,7 @@ namespace MyApp
                 if (photo == null)
                     return false;
 
-                // ✅ 3. 关键：保存到应用目录（您原来缺少这行！）
+                // 3. 保存
                 await SavePhotoToAppFolderAsync(photo);
 
                 return true;
@@ -275,17 +292,35 @@ namespace MyApp
             {
                 if (!Directory.Exists(BaseFolderPath))
                     Directory.CreateDirectory(BaseFolderPath);
+
                 string fileName = $"case_{DateTime.Now:yyyyMMddHHmmss}.jpg";
                 string destPath = Path.Combine(BaseFolderPath, fileName);
+
                 using var sourceStream = await photo.OpenReadAsync();
                 using var destStream = File.Create(destPath);
                 await sourceStream.CopyToAsync(destStream);
-                await DisplayAlertAsync("保存成功", $"照片已保存到：\n{destPath}", "确定");
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    ImgLastPhoto.Source = ImageSource.FromFile(destPath);
+                    ImgLastPhoto.IsVisible = true;
+                    LabelPhotoCount.Text = $"已保存：{GetFolderFileCount()} 张";
+                });
             }
             catch (Exception ex)
             {
                 await DisplayAlertAsync("保存错误", $"无法保存照片：{ex.Message}", "确定");
             }
+        }
+
+        private int GetFolderFileCount()
+        {
+            try
+            {
+                if (Directory.Exists(BaseFolderPath))
+                    return Directory.GetFiles(BaseFolderPath).Length;
+            }
+            catch { }
+            return 0;
         }
 
         private async void OnTakePhoto_Clicked(object sender, EventArgs e)
@@ -294,5 +329,5 @@ namespace MyApp
         }
 
         #endregion
-    }
+            }
 }
