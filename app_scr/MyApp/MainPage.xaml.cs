@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -19,7 +19,6 @@ namespace MyApp
     public partial class MainPage : ContentPage
     {
         private string BaseFolderPath => Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
-        
         private const string AlbumName = "MyCancerData";
         private const string FileName_Tasks = "tasks.txt";
         private const string FileName_Search = "search_data.txt";
