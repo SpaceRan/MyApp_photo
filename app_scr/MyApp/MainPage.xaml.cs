@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
@@ -11,20 +12,22 @@ namespace MyApp
 {
     public partial class MainPage : ContentPage
     {
-        // ================= 配置区域 =================
-        private const string BaseFolderPath = "/storage/emulated/0/MyCancerData";
-        
-        // 文件名 (与 Resources/Raw 下的文件名一致)
+        // ✅ 修复1：使用 AppDataDirectory，无需外部存储权限
+        private string BaseFolderPath => Path.Combine(FileSystem.AppDataDirectory, "MyCancerData");
         private const string FileName_Tasks = "tasks.txt";
         private const string FileName_Search = "search_data.txt";
         
         // 进度保存 Key
-        private const string PrefKey_TaskIndex = "last_task_index_v1"; //注意每次安装时都要+1更新否则肯定出问题
+        private const string PrefKey_TaskIndex = "last_task_index_v1";
         private const string PrefKey_LastPhotoTime = "last_photo_time";
+        
         private List<string> _taskList = new();
         private List<string> _searchList = new();
         private int _currentTaskIndex = 0;
         private bool _isInContinuousMode = false;
+        
+        // ✅ 修复2：添加取消令牌，用于退出连续拍照
+        private CancellationTokenSource? _cts;
 
         public MainPage()
         {
@@ -35,8 +38,25 @@ namespace MyApp
         protected override async void OnAppearing()
         {
             base.OnAppearing();
-            _isInContinuousMode = false; // 防止后台死循环
+            _isInContinuousMode = false;
             await ShowWelcomeAlert();
+        }
+
+        // ✅ 修复2：拦截物理返回键，退出连续拍照模式
+        protected override bool OnBackButtonPressed()
+        {
+            if (_isInContinuousMode)
+            {
+                _cts?.Cancel();
+                _isInContinuousMode = false;
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    ResetUI();
+                    await DisplayAlert("已退出连续拍照模式", "确定");
+                });
+                return true;
+            }
+            return base.OnBackButtonPressed();
         }
 
         #region 1. 核心初始化：权限 + 强制覆盖复制 + 读取
@@ -45,7 +65,6 @@ namespace MyApp
         {
             try
             {
-                await RequestStoragePermissionsAsync();
                 await ForceCopyFromRawAsync();
                 await LoadDataFromLocalFileAsync();
                 _currentTaskIndex = Preferences.Default.Get(PrefKey_TaskIndex, 0);
@@ -56,6 +75,10 @@ namespace MyApp
                     Preferences.Default.Set(PrefKey_TaskIndex, 0);
                 }
 
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] BaseFolderPath = {BaseFolderPath}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] 任务数量 = {_taskList.Count}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] 搜索库数量 = {_searchList.Count}");
+
                 UpdateTaskDisplay();
             }
             catch (Exception ex)
@@ -64,47 +87,22 @@ namespace MyApp
             }
         }
 
-        /// <summary>
-        /// </summary>
-        private async Task RequestStoragePermissionsAsync()
-        {
-            var status = await Permissions.CheckStatusAsync<Permissions.StorageWrite>();
-            if (status != PermissionStatus.Granted)
-            {
-                status = await Permissions.RequestAsync<Permissions.StorageWrite>();
-            }
-
-            if (status != PermissionStatus.Granted)
-            {
-                await DisplayAlert("权限警告", "必须授予存储权限才能同步任务文件！\n请在设置中手动开启。", "确定");
-            }
-        }
-
-        /// <summary>
-        /// 【强制覆盖逻辑】
-        /// 无论手机里有没有文件，都从 APK 包内的 Raw 资源复制出来，覆盖旧文件。
-        /// 确保每次安装/启动都是最新的 txt 内容。
-        /// </summary>
         private async Task ForceCopyFromRawAsync()
         {
             // 1. 确保目标文件夹存在
             if (!Directory.Exists(BaseFolderPath))
             {
                 Directory.CreateDirectory(BaseFolderPath);
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] 创建文件夹：{BaseFolderPath}");
             }
 
-            // 2. 复制任务文件
             await CopySingleFileAsync(FileName_Tasks);
-
-            // 3. 复制搜索文件
             await CopySingleFileAsync(FileName_Search);
             
-            Console.WriteLine($"文件已强制同步至：{BaseFolderPath}");
+            System.Diagnostics.Debug.WriteLine($"[DEBUG] 文件已强制同步至：{BaseFolderPath}");
         }
 
-        /// <summary>
-        /// 单个文件的复制实现
-        /// </summary>
+
         private async Task CopySingleFileAsync(string fileName)
         {
             string destPath = Path.Combine(BaseFolderPath, fileName);
@@ -113,21 +111,19 @@ namespace MyApp
             {
                 using var inputStream = await FileSystem.OpenAppPackageFileAsync(fileName);
                 
-                // 创建/覆盖 手机上的目标文件
                 using var outputStream = File.Create(destPath);
                 
-                // 执行流拷贝
                 await inputStream.CopyToAsync(outputStream);
+                
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] 文件复制成功：{fileName}");
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] 文件复制失败：{fileName}, 错误：{ex.Message}");
                 throw new Exception($"无法复制文件 {fileName}: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// 从手机本地文件读取内容到内存列表
-        /// </summary>
         private async Task LoadDataFromLocalFileAsync()
         {
             _taskList.Clear();
@@ -135,6 +131,9 @@ namespace MyApp
 
             string tasksPath = Path.Combine(BaseFolderPath, FileName_Tasks);
             string searchPath = Path.Combine(BaseFolderPath, FileName_Search);
+
+            System.Diagnostics.Debug.WriteLine($"[DEBUG] 任务文件路径：{tasksPath}");
+            System.Diagnostics.Debug.WriteLine($"[DEBUG] 任务文件存在：{File.Exists(tasksPath)}");
 
             // 读取任务
             if (File.Exists(tasksPath))
@@ -166,7 +165,7 @@ namespace MyApp
         private async Task ShowWelcomeAlert()
         {
             string dateStr = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            string msg = $"你会成为最好的开发者\n日期：{dateStr}\n\n任务已同步自：/MyCancerData/";
+            string msg = $"你会成为最好的开发者\n日期：{dateStr}\n\n数据目录：{BaseFolderPath}";
             await DisplayAlert("欢迎", msg, "开始工作");
         }
 
@@ -189,6 +188,14 @@ namespace MyApp
             ResetUI();
             _isInContinuousMode = true;
             await StartContinuousCameraLoop();
+        }
+
+        // ✅ 修复2：添加退出按钮事件
+        private void OnExitContinuousMode_Clicked(object sender, EventArgs e)
+        {
+            _cts?.Cancel();
+            _isInContinuousMode = false;
+            ResetUI();
         }
 
         private void OnModeB_Clicked(object sender, EventArgs e)
@@ -217,14 +224,39 @@ namespace MyApp
 
         #region 4. 业务逻辑 (模式 A/B/C)
 
-        // 模式 A：连续拍照
+        // ✅ 修复2：模式 A 连续拍照 - 带退出机制
         private async Task StartContinuousCameraLoop()
         {
-            while (_isInContinuousMode)
+            _cts = new CancellationTokenSource();
+            
+            try
             {
-                await Task.Delay(500); // 稍微延时防卡
-                bool taken = await CapturePhotoAsync();
-                if (!taken) continue; // 用户取消则继续循环
+                while (_isInContinuousMode && !_cts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(500, _cts.Token);
+                    bool taken = await CapturePhotoAsync();
+                    if (!taken)
+                    {
+                        // 用户取消拍照，退出循环
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 正常退出
+                System.Diagnostics.Debug.WriteLine("[DEBUG] 连续拍照已取消");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] 连续拍照错误：{ex.Message}");
+            }
+            finally
+            {
+                _isInContinuousMode = false;
+                _cts?.Dispose();
+                _cts = null;
+                MainThread.BeginInvokeOnMainThread(() => ResetUI());
             }
         }
 
@@ -263,7 +295,7 @@ namespace MyApp
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
                         await CapturePhotoAsync();
-                        BtnBackFromB.IsVisible = true; // 拍完显示返回按钮
+                        BtnBackFromB.IsVisible = true;
                     });
                 });
             }
@@ -317,7 +349,6 @@ namespace MyApp
                     if (status != PermissionStatus.Granted)
                         return false;
                 }
-
                 var photo = await MediaPicker.CapturePhotoAsync(new MediaPickerOptions { Title = "CaseCapture" });
                 return photo != null;
             }
