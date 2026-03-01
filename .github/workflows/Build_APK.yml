@@ -23,9 +23,11 @@ jobs:
         run: dotnet workload install maui --ignore-failed-sources
 
       - name: Restore dependencies
+        working-directory: ./MyApp 
         run: dotnet restore
 
       - name: Build APK
+        working-directory: ./MyApp 
         run: dotnet publish -f net10.0-android -c Release --no-restore
 
       - name: Upload APK
