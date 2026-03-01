@@ -5,6 +5,7 @@ on:
 
 jobs:
   build:
+    # 使用 Ubuntu 速度更快
     runs-on: ubuntu-latest
     
     steps:
@@ -24,20 +25,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/MyApp.csproj') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        working-directory: ./app_scr/MyApp
+        working-directory: ./MyApp
         run: dotnet restore
 
-      # 👇 【抓鬼专用】让服务器在编译前，把文件内容完整打印到日志里！
-      - name: Debug - Print MainPage.xaml.cs
-        run: cat ./app_scr/MyApp/MyApp/MainPage.xaml.cs
+      - name: Debug - Check File Content
+        run: cat ./MyApp/MainPage.xaml.cs
 
       - name: Build APK
-        working-directory: ./app_scr/MyApp
+        working-directory: ./MyApp
         run: dotnet publish -f net10.0-android -c Release --no-restore
 
       - name: Upload APK
