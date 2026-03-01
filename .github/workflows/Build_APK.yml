@@ -5,7 +5,8 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # 优化 1：使用 ubuntu-latest，启动更快，文件处理速度比 Windows 快
+    runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
@@ -17,8 +18,18 @@ jobs:
           dotnet-version: '10.0.x'
           dotnet-quality: 'preview'
 
+      # 优化 2：只安装 maui-android 负载，拒绝全家桶，节省大量下载和安装时间
       - name: Install MAUI workload
-        run: dotnet workload install maui --ignore-failed-sources
+        run: dotnet workload install maui-android --ignore-failed-sources
+
+      # 优化 3：缓存 NuGet 包 (可选但推荐，让以后的构建更快)
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
         working-directory: ./app_scr/MyApp
@@ -26,6 +37,7 @@ jobs:
 
       - name: Build APK
         working-directory: ./app_scr/MyApp
+        # 这一步 Release 编译本身比较耗时(因为要进行 AOT 预编译优化)，为了保证 APK 性能，这步省不了
         run: dotnet publish -f net10.0-android -c Release --no-restore
 
       - name: Upload APK
