@@ -276,28 +276,41 @@ namespace MyApp
                 return false;
             }
         }
-        
+
         private async Task SavePhotoToGalleryAsync(FileResult photo)
         {
             try
             {
 #if ANDROID
-                // 仅针对 Android 10+ (API 29+) 逻辑
                 var context = Platform.CurrentActivity ?? Android.App.Application.Context;
                 var resolver = context.ContentResolver;
 
+                // 加入毫秒确保文件名绝对唯一
+                string fileName = $"case_{DateTime.Now:yyyyMMddHHmmss_fff}.jpg";
+
                 var contentValues = new ContentValues();
-                contentValues.Put(MediaStore.Images.Media.InterfaceConsts.DisplayName, $"case_{DateTime.Now:yyyyMMddHHmmss}");
+                contentValues.Put(MediaStore.Images.Media.InterfaceConsts.DisplayName, fileName);
                 contentValues.Put(MediaStore.Images.Media.InterfaceConsts.MimeType, "image/jpeg");
                 contentValues.Put(MediaStore.Images.Media.InterfaceConsts.RelativePath, $"Pictures/{AlbumName}");
+                
+                // 关键点：标记文件为挂起状态，此时系统相册不会去索引一个写了一半的文件
+                contentValues.Put(MediaStore.Images.Media.InterfaceConsts.IsPending, 1);
 
                 var uri = resolver.Insert(MediaStore.Images.Media.ExternalContentUri, contentValues);
                 if (uri == null)
                     throw new Exception("无法创建媒体存储条目");
 
-                using var sourceStream = await photo.OpenReadAsync();
-                using var outputStream = resolver.OpenOutputStream(uri);
-                await sourceStream.CopyToAsync(outputStream);
+                using (var sourceStream = await photo.OpenReadAsync())
+                using (var outputStream = resolver.OpenOutputStream(uri))
+                {
+                    await sourceStream.CopyToAsync(outputStream);
+                    await outputStream.FlushAsync(); // 确保写入磁盘
+                }
+
+                // 写入完成，解除挂起状态，这样相册就能立刻显示了
+                contentValues.Clear();
+                contentValues.Put(MediaStore.Images.Media.InterfaceConsts.IsPending, 0);
+                resolver.Update(uri, contentValues, null, null);
 
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
